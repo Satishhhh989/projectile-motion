@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced 3D Projectile Motion Simulator</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js for graphs -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- MathJax for LaTeX formulas -->
+    <script>
+      MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']],
+          displayMath: [['$$', '$$'], ['\\[', '\\]']]
+        },
+        svg: {
+          fontCache: 'global'
+        }
+      };
+    </script>
+    <script type="text/javascript" id="MathJax-script" async
+      src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js">
+    </script>
+
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Importmap for Three.js modules -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js",
+          "three/examples/jsm/controls/OrbitControls.js": "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/controls/OrbitControls.js"
+        }
+      }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            background-color: #000; /* Fallback for video */
+            color: var(--text-color);
+        }
+
+        #video-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            z-index: -2;
+        }
+
+        #video-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--video-overlay-color);
+            z-index: -1;
+        }
+        
+        /* Theme variables */
+        html.dark {
+            --bg-color: transparent;
+            --card-bg-color: #1e293b; /* slate-800 */
+            --text-color: #cbd5e1; /* slate-300 */
+            --heading-color: #f8fafc; /* slate-50 */
+            --border-color: #334155; /* slate-700 */
+            --primary-color: #38bdf8; /* sky-400 */
+            --p1-color: #f87171; /* red-400 */
+            --p2-color: #4ade80; /* green-400 */
+            --overlay-bg: rgba(15, 23, 42, 0.7);
+            --video-overlay-color: rgba(0, 0, 0, 0.5);
+        }
+        
+        html.light {
+            --bg-color: transparent;
+            --card-bg-color: #ffffff;
+            --text-color: #475569; /* slate-600 */
+            --heading-color: #1e293b; /* slate-800 */
+            --border-color: #e2e8f0; /* slate-200 */
+            --primary-color: #0ea5e9; /* sky-500 */
+            --p1-color: #ef4444; /* red-500 */
+            --p2-color: #22c55e; /* green-500 */
+            --overlay-bg: rgba(241, 245, 249, 0.7);
+            --video-overlay-color: rgba(255, 255, 255, 0.3);
+        }
+        
+        #simulation-canvas {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 1; transition: transform 0.5s ease-in-out, width 0.5s ease-in-out;
+        }
+
+        #controls-overlay {
+            z-index: 10; background-color: var(--overlay-bg);
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
+        }
+        
+        #controls-panel { transition: transform 0.4s ease-in-out; }
+        .controls-hidden #controls-overlay { opacity: 0; visibility: hidden; }
+        .controls-hidden #controls-panel { transform: translateX(100%); }
+        .controls-visible #simulation-canvas { transform: translateX(-21rem); }
+        
+        @media (max-width: 1024px) {
+            .controls-visible #simulation-canvas { transform: scale(0.9) translateY(-20%); }
+            #controls-panel { transform: translateY(100%); }
+            .controls-hidden #controls-panel { transform: translateY(100%); }
+            .controls-visible #controls-panel { transform: translateY(0); }
+        }
+        
+        /* Sliders */
+        input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; background: var(--border-color); border-radius: 5px; outline: none; opacity: 0.7; transition: opacity .2s; }
+        input[type=range]:hover { opacity: 1; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; background: var(--primary-color); cursor: pointer; border-radius: 50%; border: 2px solid var(--card-bg-color); }
+        
+        /* Tabs */
+        .tab-btn { transition: all 0.3s ease; }
+        .tab-btn.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        /* Timeline */
+        #timeline-container { position: fixed; top: 0; left: 0; width: 100%; height: 4px; background-color: rgba(128,128,128,0.2); z-index: 20; opacity: 0; transition: opacity 0.3s; }
+        #timeline-container.visible { opacity: 1; }
+        #timeline-progress { width: 0%; height: 100%; background-color: var(--primary-color); transition: width 0.1s linear; }
+
+        /* Comparison Mode */
+        .p2-controls { display: none; }
+        body.comparison-active .p2-controls { display: block; }
+        .p1-border { border-left: 3px solid var(--p1-color); }
+        .p2-border { border-left: 3px solid var(--p2-color); }
+
+        /* Switch Toggle */
+        .switch { position: relative; display: inline-block; width: 50px; height: 28px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: var(--primary-color); }
+        input:checked + .slider:before { transform: translateX(22px); }
+
+    </style>
+</head>
+<body class="controls-hidden">
+
+    <!-- Video Background -->
+    <video autoplay loop muted playsinline id="video-bg">
+        <source src="vid.mp4" type="video/mp4">
+        Your browser does not support the video tag.
+    </video>
+    <div id="video-overlay"></div>
+
+    <!-- 3D Canvas -->
+    <canvas id="simulation-canvas"></canvas>
+    <div id="timeline-container"><div id="timeline-progress"></div></div>
+
+    <!-- UI Elements -->
+    <div class="fixed top-0 left-0 w-full h-full z-10 p-4 sm:p-6 lg:p-8 pointer-events-none">
+        <header class="flex justify-between items-center pointer-events-auto">
+            <h1 class="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Advanced 3D Projectile Simulator</h1>
+            <div class="flex items-center space-x-2">
+                <button id="fullscreen-btn" title="Toggle Fullscreen" class="p-2 rounded-full bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 0h-4m4 0l-5-5"></path></svg>
+                </button>
+                <button id="theme-toggle" class="p-2 rounded-full bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                     <svg id="theme-icon-light" class="w-5 h-5 text-gray-800" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                     <svg id="theme-icon-dark" class="w-5 h-5 hidden text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+                </button>
+            </div>
+        </header>
+        
+        <div class="absolute bottom-8 right-8 flex flex-col items-end space-y-4 pointer-events-auto">
+             <button id="open-controls-btn" class="bg-sky-500 text-white font-semibold py-3 px-5 rounded-xl shadow-lg hover:bg-sky-600 dark:bg-sky-600 dark:hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 dark:focus:ring-offset-gray-800 transition-all transform hover:scale-105">Adjust & Analyze</button>
+             <div class="flex items-center space-x-3 bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm p-2 rounded-xl shadow-lg">
+               <button id="start-btn" class="flex-1 bg-green-500 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-green-600 transition transform hover:scale-105">Start</button>
+               <button id="pause-btn" class="bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-gray-300 dark:hover:bg-gray-500 transition transform hover:scale-105">Pause</button>
+               <button id="reset-btn" class="bg-red-500 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-red-600 transition transform hover:scale-105">Reset</button>
+             </div>
+        </div>
+    </div>
+    
+    <!-- Controls Overlay -->
+    <div id="controls-overlay" class="fixed inset-0 pointer-events-auto">
+        <div id="controls-panel" class="absolute top-0 right-0 h-full w-full max-w-md bg-card-bg-color shadow-2xl p-6 overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold text-heading-color">Settings & Data</h2>
+                <button id="close-controls-btn" class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <div class="border-b border-border-color mb-4">
+                <nav class="flex space-x-6 -mb-px" aria-label="Tabs">
+                    <button data-tab="controls" class="tab-btn active whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm border-transparent">Controls</button>
+                    <button data-tab="graphs" class="tab-btn whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm border-transparent">Graphs</button>
+                    <button data-tab="concepts" class="tab-btn whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm border-transparent">Concepts</button>
+                </nav>
+            </div>
+
+            <div id="tab-controls" class="tab-content active space-y-6">
+                <div class="flex justify-between items-center bg-slate-100 dark:bg-slate-900/50 p-3 rounded-lg">
+                    <label for="compare-switch" class="font-medium text-heading-color">Compare Mode</label>
+                    <label class="switch"><input type="checkbox" id="compare-switch"><span class="slider"></span></label>
+                </div>
+
+                <!-- Projectile 1 Controls -->
+                <div class="p1-border p-4 rounded-lg space-y-4">
+                    <h3 class="font-bold text-lg text-p1-color">Projectile 1</h3>
+                    <div>
+                        <label class="flex items-center justify-between text-sm font-medium"><span>Initial Velocity (v₀)</span><input type="number" id="velocity-input-p1" value="50" min="1" max="200" class="w-20 text-center bg-slate-100 dark:bg-slate-700 rounded-md border-border-color focus:ring-primary-color focus:border-primary-color text-sm"></label>
+                        <input type="range" id="velocity-slider-p1" min="1" max="200" value="50" class="w-full mt-2">
+                    </div>
+                    <div>
+                        <label class="flex items-center justify-between text-sm font-medium"><span>Angle (θ)</span><input type="number" id="angle-input-p1" value="45" min="1" max="90" class="w-20 text-center bg-slate-100 dark:bg-slate-700 rounded-md border-border-color focus:ring-primary-color focus:border-primary-color text-sm"></label>
+                        <input type="range" id="angle-slider-p1" min="1" max="90" value="45" class="w-full mt-2">
+                    </div>
+                </div>
+                
+                <!-- Projectile 2 Controls -->
+                <div class="p2-controls p2-border p-4 rounded-lg space-y-4">
+                    <h3 class="font-bold text-lg text-p2-color">Projectile 2</h3>
+                    <div>
+                        <label class="flex items-center justify-between text-sm font-medium"><span>Initial Velocity (v₀)</span><input type="number" id="velocity-input-p2" value="60" min="1" max="200" class="w-20 text-center bg-slate-100 dark:bg-slate-700 rounded-md border-border-color focus:ring-primary-color focus:border-primary-color text-sm"></label>
+                        <input type="range" id="velocity-slider-p2" min="1" max="200" value="60" class="w-full mt-2">
+                    </div>
+                    <div>
+                        <label class="flex items-center justify-between text-sm font-medium"><span>Angle (θ)</span><input type="number" id="angle-input-p2" value="30" min="1" max="90" class="w-20 text-center bg-slate-100 dark:bg-slate-700 rounded-md border-border-color focus:ring-primary-color focus:border-primary-color text-sm"></label>
+                        <input type="range" id="angle-slider-p2" min="1" max="90" value="30" class="w-full mt-2">
+                    </div>
+                </div>
+
+                <!-- Shared Controls (Gravity) -->
+                <div>
+                    <label class="flex items-center justify-between text-sm font-medium"><span>Gravity (g)</span><input type="number" id="gravity-input" value="9.8" min="0.1" max="50" step="0.1" class="w-20 text-center bg-slate-100 dark:bg-slate-700 rounded-md border-border-color focus:ring-primary-color focus:border-primary-color text-sm"></label>
+                    <input type="range" id="gravity-slider" min="0.1" max="50" value="9.8" step="0.1" class="w-full mt-2">
+                    <div class="flex justify-between mt-3 text-xs space-x-2">
+                        <button class="gravity-btn flex-1 bg-slate-200 dark:bg-slate-700 p-2 rounded-md hover:bg-slate-300 dark:hover:bg-slate-600" data-g="1.6">Moon</button>
+                        <button class="gravity-btn flex-1 bg-slate-200 dark:bg-slate-700 p-2 rounded-md hover:bg-slate-300 dark:hover:bg-slate-600" data-g="3.7">Mars</button>
+                        <button class="gravity-btn flex-1 bg-slate-200 dark:bg-slate-700 p-2 rounded-md hover:bg-slate-300 dark:hover:bg-slate-600" data-g="9.8">Earth</button>
+                    </div>
+                </div>
+                
+                 <div id="calculations-container" class="grid grid-cols-1 md:grid-cols-2 gap-4 text-center pt-4"></div>
+            </div>
+
+            <div id="tab-graphs" class="tab-content">
+                <div class="flex justify-between items-center mb-2">
+                     <button id="download-csv-btn" class="text-sm bg-slate-200 dark:bg-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500 transition">Download Data (CSV)</button>
+                     <button id="fullscreen-graphs-btn" title="Toggle Fullscreen" class="p-2 rounded-full bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500 transition">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 0h-4m4 0l-5-5"></path></svg>
+                    </button>
+                 </div>
+                <div id="graphs-container" class="grid grid-cols-1 gap-6 bg-transparent p-1">
+                    <div class="w-full h-56"><canvas id="trajectory-chart"></canvas></div>
+                    <div class="w-full h-56"><canvas id="height-chart"></canvas></div>
+                    <div class="w-full h-56"><canvas id="range-chart"></canvas></div>
+                </div>
+            </div>
+            
+            <div id="tab-concepts" class="tab-content">
+                <div class="prose prose-sm sm:prose-base dark:prose-invert max-w-none space-y-6">
+                    <div>
+                        <h3 class="text-lg font-semibold text-heading-color">Real-World Applications</h3>
+                        <ul class="list-disc pl-5 mt-2 space-y-1">
+                            <li><strong>Sports:</strong> Calculating the arc of a basketball shot, the trajectory of a golf ball, or the path of a kicked football.</li>
+                            <li><strong>Military:</strong> Ballistics for firing artillery shells and missiles to accurately hit targets.</li>
+                            <li><strong>Fountains:</strong> Designing water fountains where jets of water follow parabolic paths to create beautiful displays.</li>
+                             <li><strong>Aerospace:</strong> While orbital mechanics are more complex, initial rocket launch phases follow projectile principles before escaping Earth's gravity.</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-heading-color">Formula Derivations</h3>
+                        <p>Projectile motion is analyzed by separating it into horizontal (x) and vertical (y) components. Horizontal motion has constant velocity, while vertical motion has constant downward acceleration (g).</p>
+                        <p><strong>1. Time of Flight (T):</strong> This is the total time the object is in the air. We find this by analyzing the vertical motion. The displacement in y is zero when it lands back at its starting height.
+                        $$y(t) = (v_0 \sin\theta)t - \frac{1}{2}gt^2$$
+                        Setting $y(t) = 0$:
+                        $$0 = t(v_0 \sin\theta - \frac{1}{2}gt)$$
+                        This gives two solutions, $t=0$ (launch) and the time of flight:
+                        $$T = \frac{2v_0 \sin\theta}{g}$$
+                        </p>
+                         <p><strong>2. Maximum Height (H):</strong> This occurs at the peak of the trajectory, where the vertical velocity $v_y$ is momentarily zero.
+                        $$v_y(t) = v_0 \sin\theta - gt$$
+                        Set $v_y(t) = 0$ to find the time to reach the peak, $t_{peak} = \frac{v_0 \sin\theta}{g}$, which is exactly $T/2$. Substitute this time back into the vertical position equation:
+                        $$H = y(t_{peak}) = (v_0 \sin\theta)\left(\frac{v_0 \sin\theta}{g}\right) - \frac{1}{2}g\left(\frac{v_0 \sin\theta}{g}\right)^2$$
+                        $$H = \frac{(v_0 \sin\theta)^2}{g} - \frac{(v_0 \sin\theta)^2}{2g} = \frac{(v_0 \sin\theta)^2}{2g}$$
+                        </p>
+                        <p><strong>3. Horizontal Range (R):</strong> This is the total horizontal distance traveled. It's the horizontal velocity (which is constant) multiplied by the total time of flight, T.
+                        $$R = x(T) = (v_0 \cos\theta) \times T$$
+                        Substitute the formula for T:
+                        $$R = (v_0 \cos\theta) \left(\frac{2v_0 \sin\theta}{g}\right) = \frac{v_0^2 (2\sin\theta\cos\theta)}{g}$$
+                        Using the trigonometric identity $\sin(2\theta) = 2\sin\theta\cos\theta$:
+                        $$R = \frac{v_0^2 \sin(2\theta)}{g}$$
+                        </p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script type="module">
+        // --- Global Imports ---
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- DOM Elements ---
+            const body = document.body;
+            const canvas = document.getElementById('simulation-canvas');
+            const startBtn = document.getElementById('start-btn');
+            const pauseBtn = document.getElementById('pause-btn');
+            const resetBtn = document.getElementById('reset-btn');
+            const openControlsBtn = document.getElementById('open-controls-btn');
+            const closeControlsBtn = document.getElementById('close-controls-btn');
+            const timelineContainer = document.getElementById('timeline-container');
+            const timelineProgress = document.getElementById('timeline-progress');
+            const themeToggle = document.getElementById('theme-toggle');
+            const tabBtns = document.querySelectorAll('.tab-btn');
+            const tabContents = document.querySelectorAll('.tab-content');
+            const gravityBtns = document.querySelectorAll('.gravity-btn');
+            const compareSwitch = document.getElementById('compare-switch');
+            const calculationsContainer = document.getElementById('calculations-container');
+            const downloadCsvBtn = document.getElementById('download-csv-btn');
+            const fullscreenBtn = document.getElementById('fullscreen-btn');
+            const fullscreenGraphsBtn = document.getElementById('fullscreen-graphs-btn');
+            const graphsContainer = document.getElementById('graphs-container');
+
+            // --- State Variables ---
+            let animationFrameId;
+            let isRunning = false, isPaused = false, isCinematic = false, isReturningToOrbit = false;
+            let time = 0;
+            let charts = {};
+            
+            // --- State for Projectiles ---
+            let projectileStates = [
+                { id: 'p1', v0: 50, angle: 45, g: 9.8, color: 0xf87171, isActive: true },
+                { id: 'p2', v0: 60, angle: 30, g: 9.8, color: 0x4ade80, isActive: false }
+            ];
+            let simulationData = {};
+
+            // --- 3D Scene Setup ---
+            let scene, camera, renderer, orbitControls, ambientLight, gridHelper;
+            let projectiles3D = {}; // { p1: { mesh, tube }, p2: { mesh, tube } }
+            const initialCameraPos = new THREE.Vector3(50, 40, 150);
+            const clock = new THREE.Clock();
+
+            function initThree() {
+                scene = new THREE.Scene();
+                camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+                camera.position.copy(initialCameraPos);
+                camera.lookAt(80, 20, 0);
+
+                renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+                renderer.setClearColor(0x000000, 0); // Make canvas transparent
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.setPixelRatio(window.devicePixelRatio);
+
+                orbitControls = new OrbitControls(camera, renderer.domElement);
+                orbitControls.enableDamping = true;
+                orbitControls.dampingFactor = 0.05;
+
+                ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+                scene.add(ambientLight);
+                const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+                dirLight.position.set(50, 100, 50);
+                scene.add(dirLight);
+
+                setupProjectiles3D();
+            }
+            
+            function setupProjectiles3D() {
+                projectileStates.forEach(state => {
+                    if (projectiles3D[state.id]) { // cleanup old if exists
+                        scene.remove(projectiles3D[state.id].mesh);
+                        scene.remove(projectiles3D[state.id].tube);
+                    }
+
+                    const projectileGeo = new THREE.SphereGeometry(2, 32, 16);
+                    const projectileMat = new THREE.MeshStandardMaterial({ color: state.color, metalness: 0.5, roughness: 0.5, emissive: state.color, emissiveIntensity: 0.5 });
+                    const mesh = new THREE.Mesh(projectileGeo, projectileMat);
+                    const projectileLight = new THREE.PointLight(state.color, 1, 150);
+                    mesh.add(projectileLight);
+                    mesh.visible = state.isActive;
+                    scene.add(mesh);
+
+                    const tubeGeo = new THREE.BufferGeometry();
+                    const tubeMat = new THREE.MeshBasicMaterial({ color: state.color, transparent: true, opacity: 0.8 });
+                    const tube = new THREE.Mesh(tubeGeo, tubeMat);
+                    tube.visible = state.isActive;
+                    scene.add(tube);
+                    
+                    projectiles3D[state.id] = { mesh, tube };
+                });
+            }
+
+            function createGrid() {
+                 if (gridHelper) scene.remove(gridHelper);
+                 const isDark = document.documentElement.classList.contains('dark');
+                 const gridColor1 = isDark ? 0x475569 : 0xd1d5db;
+                 const gridColor2 = isDark ? 0x334155 : 0xe5e7eb;
+                 gridHelper = new THREE.GridHelper(1000, 40, gridColor1, gridColor2);
+                 scene.add(gridHelper);
+            }
+
+            // --- Main Simulation & Physics Logic ---
+
+            function calculatePhysics(state) {
+                const angleRad = state.angle * (Math.PI / 180);
+                const timeOfFlight = (2 * state.v0 * Math.sin(angleRad)) / state.g;
+                const maxHeight = Math.pow(state.v0 * Math.sin(angleRad), 2) / (2 * state.g);
+                const horizontalRange = (Math.pow(state.v0, 2) * Math.sin(2 * angleRad)) / state.g;
+                return { timeOfFlight, maxHeight, horizontalRange };
+            }
+
+            function calculateTrajectoryPoints(state) {
+                const { timeOfFlight } = calculatePhysics(state);
+                const angleRad = state.angle * (Math.PI / 180);
+                const points = []; const data = [];
+                const dataPoints = 200;
+                
+                for (let i = 0; i <= dataPoints; i++) {
+                    const t = (i / dataPoints) * timeOfFlight;
+                    const x = state.v0 * Math.cos(angleRad) * t;
+                    const y = (state.v0 * Math.sin(angleRad) * t) - (0.5 * state.g * Math.pow(t, 2));
+                    if(y >= -0.1) {
+                        points.push(new THREE.Vector3(x, y, 0));
+                        data.push({ t, x, y });
+                    }
+                }
+                return { points, data };
+            }
+
+            function syncInputsAndRecalculate() {
+                // Update state from inputs
+                projectileStates.forEach(state => {
+                    state.v0 = parseFloat(document.getElementById(`velocity-input-${state.id}`).value);
+                    state.angle = parseFloat(document.getElementById(`angle-input-${state.id}`).value);
+                    state.g = parseFloat(document.getElementById('gravity-input').value);
+                });
+
+                // Update UI for each active projectile
+                updateAllCalculations();
+                updateAllStaticPaths();
+                updateChartsData();
+                projectileStates.forEach(state => {
+                    if (projectiles3D[state.id]) { // Ensure mesh exists
+                        projectiles3D[state.id].mesh.position.set(0,0,0);
+                    }
+                });
+            }
+
+            function handleInputChange() {
+                if(isRunning || isCinematic) stopSimulation();
+                syncInputsAndRecalculate();
+            }
+            
+            function updateAllCalculations() {
+                calculationsContainer.innerHTML = '';
+                projectileStates.filter(s => s.isActive).forEach(state => {
+                    const { timeOfFlight, maxHeight, horizontalRange } = calculatePhysics(state);
+                    const html = `
+                        <div class="${state.id === 'p1' ? 'p1-border' : 'p2-border'} p-3 rounded-lg space-y-2 col-span-1">
+                            <h3 class="font-bold text-lg ${state.id === 'p1' ? 'text-p1-color' : 'text-p2-color'}">${state.id === 'p1' ? 'Projectile 1' : 'Projectile 2'} Results</h3>
+                            <div class="grid grid-cols-3 gap-2 text-center text-xs">
+                                <div><h4 class="font-medium text-primary-color">Max Height</h4><p class="font-semibold text-lg text-heading-color">${maxHeight.toFixed(1)}m</p></div>
+                                <div><h4 class="font-medium text-primary-color">Time</h4><p class="font-semibold text-lg text-heading-color">${timeOfFlight.toFixed(1)}s</p></div>
+                                <div><h4 class="font-medium text-primary-color">Range</h4><p class="font-semibold text-lg text-heading-color">${horizontalRange.toFixed(1)}m</p></div>
+                            </div>
+                        </div>`;
+                    calculationsContainer.innerHTML += html;
+                });
+            }
+
+            function updateAllStaticPaths() {
+                projectileStates.forEach(state => {
+                    const { tube } = projectiles3D[state.id];
+                    tube.geometry.dispose();
+                    if(state.isActive) {
+                        const { points, data } = calculateTrajectoryPoints(state);
+                        simulationData[state.id] = data;
+                        if (points.length > 1) {
+                            const curve = new THREE.CatmullRomCurve3(points);
+                            tube.geometry = new THREE.TubeGeometry(curve, 100, 0.5, 8, false);
+                        } else {
+                            tube.geometry = new THREE.BufferGeometry();
+                        }
+                    } else {
+                         tube.geometry = new THREE.BufferGeometry();
+                    }
+                });
+            }
+            
+            // --- Animation Loop ---
+            function animate() {
+                animationFrameId = requestAnimationFrame(animate);
+                const deltaTime = clock.getDelta();
+
+                if (isRunning && !isPaused) {
+                    time += deltaTime;
+                    let finishedCount = 0;
+                    
+                    projectileStates.filter(s => s.isActive).forEach(state => {
+                        const { timeOfFlight } = calculatePhysics(state);
+                        const { mesh } = projectiles3D[state.id];
+
+                        if (time >= timeOfFlight) {
+                            finishedCount++;
+                        } else {
+                            const angleRad = state.angle * (Math.PI / 180);
+                            const x = state.v0 * Math.cos(angleRad) * time;
+                            const y = (state.v0 * Math.sin(angleRad) * time) - (0.5 * state.g * Math.pow(time, 2));
+                            mesh.position.set(x, y, 0);
+                        }
+                    });
+                    
+                    const maxTimeOfFlight = Math.max(...projectileStates.filter(s => s.isActive).map(s => calculatePhysics(s).timeOfFlight));
+                    updateTimeline(time, maxTimeOfFlight);
+
+                    if(finishedCount === projectileStates.filter(s => s.isActive).length) {
+                        stopSimulation();
+                    }
+                }
+                
+                if (isCinematic) handleCinematicCamera();
+                else if (isReturningToOrbit) returnCameraToOrbit();
+                else orbitControls.update();
+                
+                renderer.render(scene, camera);
+            }
+
+            function stopSimulation() {
+                isRunning = false;
+                startBtn.textContent = 'Start';
+                toggleAllInputs(false);
+                isCinematic = false;
+                isReturningToOrbit = true;
+                timelineContainer.classList.remove('visible');
+            }
+            
+            function resetSimulation() {
+                stopSimulation();
+                isReturningToOrbit = false;
+                time = 0;
+                
+                // Reset states to default
+                 projectileStates[0].v0 = 50; projectileStates[0].angle = 45;
+                 projectileStates[1].v0 = 60; projectileStates[1].angle = 30;
+                 const g = 9.8;
+                 projectileStates.forEach(s => s.g = g);
+                 
+                 // Reset inputs
+                 document.getElementById('velocity-input-p1').value = 50; document.getElementById('velocity-slider-p1').value = 50;
+                 document.getElementById('angle-input-p1').value = 45; document.getElementById('angle-slider-p1').value = 45;
+                 document.getElementById('velocity-input-p2').value = 60; document.getElementById('velocity-slider-p2').value = 60;
+                 document.getElementById('angle-input-p2').value = 30; document.getElementById('angle-slider-p2').value = 30;
+                 document.getElementById('gravity-input').value = g; document.getElementById('gravity-slider').value = g;
+
+                compareSwitch.checked = false;
+                toggleCompareMode();
+                
+                handleInputChange();
+
+                camera.position.copy(initialCameraPos);
+                camera.lookAt(80, 20, 0);
+                orbitControls.target.set(0,0,0);
+                orbitControls.enabled = true;
+                pauseBtn.textContent = 'Pause';
+                isPaused = false;
+                setActiveTab('controls');
+            }
+            
+            // --- UI & Event Handlers ---
+            
+            function toggleAllInputs(disabled) {
+                 document.querySelectorAll('#tab-controls input, #tab-controls button').forEach(el => el.disabled = disabled);
+            }
+
+            function setupEventListeners() {
+                openControlsBtn.addEventListener('click', () => toggleControls(true));
+                closeControlsBtn.addEventListener('click', () => toggleControls(false));
+                themeToggle.addEventListener('click', () => {
+                    const isDark = !document.documentElement.classList.contains('dark');
+                    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+                    applyTheme(isDark);
+                });
+                
+                tabBtns.forEach(btn => btn.addEventListener('click', (e) => setActiveTab(e.currentTarget.dataset.tab)));
+                
+                document.querySelectorAll('#tab-controls input').forEach(el => {
+                    el.addEventListener('input', handleInputChange);
+                    el.addEventListener('change', handleInputChange);
+                });
+
+                gravityBtns.forEach(btn => btn.addEventListener('click', (e) => {
+                    const g = parseFloat(e.currentTarget.dataset.g);
+                    document.getElementById('gravity-input').value = g;
+                    document.getElementById('gravity-slider').value = g;
+                    handleInputChange();
+                }));
+                
+                compareSwitch.addEventListener('change', toggleCompareMode);
+
+                startBtn.addEventListener('click', () => {
+                    if (isRunning) return;
+                    
+                    syncInputsAndRecalculate(); // Recalculate paths based on final inputs just before start
+
+                    isRunning = true; 
+                    isPaused = false; 
+                    isReturningToOrbit = false; 
+                    time = 0;
+                    isCinematic = true; 
+                    orbitControls.enabled = false;
+                    startBtn.textContent = 'Running'; 
+                    pauseBtn.textContent = 'Pause';
+                    toggleAllInputs(true);
+                    timelineContainer.classList.add('visible');
+                });
+
+                pauseBtn.addEventListener('click', () => {
+                    if (!isRunning) return;
+                    isPaused = !isPaused;
+                    pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
+                });
+                
+                resetBtn.addEventListener('click', resetSimulation);
+                downloadCsvBtn.addEventListener('click', downloadCSV);
+                fullscreenBtn.addEventListener('click', () => toggleFullscreen(document.body));
+                fullscreenGraphsBtn.addEventListener('click', () => toggleFullscreen(graphsContainer));
+                window.addEventListener('resize', onWindowResize);
+            }
+            
+            function applyTheme(isDark) {
+                 document.documentElement.classList.toggle('dark', isDark);
+                 document.getElementById('theme-icon-light').classList.toggle('hidden', isDark);
+                 document.getElementById('theme-icon-dark').classList.toggle('hidden', !isDark);
+                 if(scene) scene.background = null; // Always transparent
+                 if (ambientLight) ambientLight.intensity = isDark ? 0.4 : 0.8;
+                 createGrid();
+                 updateAllChartStyles();
+            }
+            
+            function onWindowResize() {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+            
+            function toggleControls(show) { body.className = show ? 'controls-visible' : 'controls-hidden'; }
+            function setActiveTab(tabName) {
+                tabBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
+                tabContents.forEach(c => c.classList.toggle('active', c.id === `tab-${tabName}`));
+            }
+            
+            function toggleCompareMode() {
+                const isCompare = compareSwitch.checked;
+                body.classList.toggle('comparison-active', isCompare);
+                projectileStates[1].isActive = isCompare;
+                projectiles3D.p2.mesh.visible = isCompare;
+                projectiles3D.p2.tube.visible = isCompare;
+                handleInputChange();
+            }
+
+            function updateTimeline(currentTime, totalTime) {
+                const progress = Math.min(currentTime / totalTime, 1);
+                timelineProgress.style.width = `${progress * 100}%`;
+            }
+
+            function toggleFullscreen(element) {
+                if (!document.fullscreenElement) {
+                    element.requestFullscreen().catch(err => alert(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`));
+                } else {
+                    document.exitFullscreen();
+                }
+            }
+
+            function downloadCSV() {
+                let csvContent = "data:text/csv;charset=utf-8,";
+                const p1Data = simulationData.p1 || [];
+                const p2Data = simulationData.p2 || [];
+                const isCompare = projectileStates[1].isActive;
+
+                csvContent += isCompare ? "Time (s),X1 (m),Y1 (m),X2 (m),Y2 (m)\n" : "Time (s),X (m),Y (m)\n";
+
+                const maxLen = Math.max(p1Data.length, isCompare ? p2Data.length : 0);
+                for (let i = 0; i < maxLen; i++) {
+                    const row1 = p1Data[i] ? `${p1Data[i].t.toFixed(3)},${p1Data[i].x.toFixed(3)},${p1Data[i].y.toFixed(3)}` : ",,";
+                    let row = row1;
+                    if(isCompare) {
+                        const row2 = p2Data[i] ? `,${p2Data[i].x.toFixed(3)},${p2Data[i].y.toFixed(3)}` : ",,";
+                        row += row2;
+                    }
+                    csvContent += row + "\n";
+                }
+                
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", "projectile_data.csv");
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+
+            // --- Charting ---
+            function initCharts() {
+                const p1Color = getComputedStyle(document.documentElement).getPropertyValue('--p1-color');
+                const p2Color = getComputedStyle(document.documentElement).getPropertyValue('--p2-color');
+                charts.trajectory = createChart('trajectory-chart', 'Trajectory (Y vs. X)', 'Range (m)', 'Height (m)', [
+                    { label: 'Projectile 1', data: [], borderColor: p1Color.trim(), fill: false, tension: 0.1, pointRadius: 0 },
+                    { label: 'Projectile 2', data: [], borderColor: p2Color.trim(), fill: false, tension: 0.1, pointRadius: 0 }
+                ]);
+                charts.height = createChart('height-chart', 'Height vs. Time', 'Time (s)', 'Height (m)', [
+                    { label: 'Projectile 1', data: [], borderColor: p1Color.trim(), fill: false, tension: 0.1, pointRadius: 0 },
+                    { label: 'Projectile 2', data: [], borderColor: p2Color.trim(), fill: false, tension: 0.1, pointRadius: 0 }
+                ]);
+                charts.range = createChart('range-chart', 'Range vs. Time', 'Time (s)', 'Range (m)', [
+                    { label: 'Projectile 1', data: [], borderColor: p1Color.trim(), fill: false, tension: 0.1, pointRadius: 0 },
+                    { label: 'Projectile 2', data: [], borderColor: p2Color.trim(), fill: false, tension: 0.1, pointRadius: 0 }
+                ]);
+                updateAllChartStyles();
+            }
+
+            function createChart(canvasId, title, xLabel, yLabel, datasets) {
+                return new Chart(document.getElementById(canvasId), {
+                    type: 'line', data: { datasets },
+                    options: { responsive: true, maintainAspectRatio: false,
+                        plugins: { title: { display: true, text: title } },
+                        scales: { x: { type: 'linear', title: { display: true, text: xLabel } },
+                                  y: { title: { display: true, text: yLabel }, beginAtZero: true }}
+                    }
+                });
+            }
+            
+            function updateChartsData() {
+                const isCompare = projectileStates[1].isActive;
+                charts.trajectory.data.datasets[1].hidden = !isCompare;
+                charts.height.data.datasets[1].hidden = !isCompare;
+                charts.range.data.datasets[1].hidden = !isCompare;
+
+                projectileStates.forEach((state, index) => {
+                    if(state.isActive) {
+                        const data = simulationData[state.id] || [];
+                        charts.trajectory.data.datasets[index].data = data.map(p => ({x: p.x, y: p.y}));
+                        charts.height.data.datasets[index].data = data.map(p => ({x: p.t, y: p.y}));
+                        charts.range.data.datasets[index].data = data.map(p => ({x: p.t, y: p.x}));
+                    } else {
+                        charts.trajectory.data.datasets[index].data = [];
+                        charts.height.data.datasets[index].data = [];
+                        charts.range.data.datasets[index].data = [];
+                    }
+                });
+                Object.values(charts).forEach(chart => chart.update('none'));
+            }
+
+            function updateAllChartStyles() {
+                if (Object.keys(charts).length === 0) return;
+                const isDark = document.documentElement.classList.contains('dark');
+                const gridColor = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+                const textColor = isDark ? '#cbd5e1' : '#475569';
+                
+                Object.values(charts).forEach(c => {
+                    c.options.plugins.title.color = textColor;
+                    c.options.plugins.legend.labels.color = textColor;
+                    c.options.scales.x.title.color = textColor; c.options.scales.x.ticks.color = textColor; c.options.scales.x.grid.color = gridColor;
+                    c.options.scales.y.title.color = textColor; c.options.scales.y.ticks.color = textColor; c.options.scales.y.grid.color = gridColor;
+                    c.update();
+                });
+            }
+            
+            function handleCinematicCamera() {
+                if (!isCinematic) return;
+                const p1 = projectiles3D.p1.mesh;
+                
+                const zoomInDuration = 1.0; 
+                if (time < zoomInDuration) {
+                    const startPosition = new THREE.Vector3(-20, 10, 30);
+                    camera.position.lerp(startPosition, 0.08);
+                    camera.lookAt(p1.position);
+                    return; 
+                }
+
+                const timeSinceLaunch = time - zoomInDuration;
+                const baseDistance = 50;
+                const heightAboveProjectile = 20 + p1.position.y * 0.2;
+                const orbitAngle = timeSinceLaunch * 0.2;
+                const orbitRadius = 25;
+                const xOffset = Math.sin(orbitAngle) * orbitRadius;
+                const zOffset = Math.cos(orbitAngle) * orbitRadius + baseDistance;
+                const idealOffset = new THREE.Vector3(xOffset, heightAboveProjectile, zOffset);
+                const targetPosition = new THREE.Vector3().addVectors(p1.position, idealOffset);
+                camera.position.lerp(targetPosition, 0.03);
+
+                const state = projectileStates[0];
+                const angleRad = state.angle * (Math.PI / 180);
+                const lookAheadTime = time + 0.3; 
+                const nextX = state.v0 * Math.cos(angleRad) * lookAheadTime;
+                const nextY = (state.v0 * Math.sin(angleRad) * lookAheadTime) - (0.5 * state.g * Math.pow(lookAheadTime, 2));
+                const lookAtTarget = new THREE.Vector3(nextX, nextY, 0);
+                lookAtTarget.y += 5; 
+
+                const tempCam = camera.clone();
+                tempCam.lookAt(lookAtTarget);
+                camera.quaternion.slerp(tempCam.quaternion, 0.04);
+            }
+
+            function returnCameraToOrbit() {
+                if (!isReturningToOrbit) return;
+
+                camera.position.lerp(initialCameraPos, 0.05);
+                const tempCam = camera.clone();
+                tempCam.lookAt(orbitControls.target); 
+                camera.quaternion.slerp(tempCam.quaternion, 0.05);
+
+                if (camera.position.distanceTo(initialCameraPos) < 1.0) {
+                    isReturningToOrbit = false;
+                    orbitControls.enabled = true;
+                    toggleControls(true);
+                    setActiveTab('graphs');
+                }
+            }
+
+
+            // --- Initialization ---
+            function init() {
+                initThree();
+                applyTheme(localStorage.getItem('theme') === 'dark' || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches));
+                initCharts();
+                setupEventListeners();
+                toggleCompareMode(); // init visibility based on default switch state
+                handleInputChange(); // init calculations
+                animate();
+            }
+
+            init();
+        });
+    </script>
+</body>
+</html>
+
